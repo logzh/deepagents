@@ -24,7 +24,7 @@ from tests.evals.utils import (
     tool_call,
 )
 
-pytestmark = [pytest.mark.eval_category("tool_usage")]
+pytestmark = [pytest.mark.eval_category("tool_use")]
 
 # ---------------------------------------------------------------------------
 # Static relational data
@@ -434,7 +434,7 @@ def _create_agent(model: BaseChatModel):
     """Create agent."""
     return create_deep_agent(
         model=model,
-        tools=RELATIONAL_TOOL_NAMES,
+        tools=RELATIONAL_TOOLS,
     )
 
 

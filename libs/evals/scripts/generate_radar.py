@@ -19,8 +19,10 @@ import sys
 from pathlib import Path
 
 from deepagents_evals.radar import (
+    ALL_CATEGORIES,
     EVAL_CATEGORIES,
     ModelResult,
+    generate_individual_radars,
     generate_radar,
     load_results_from_summary,
     toy_data,
@@ -66,6 +68,12 @@ def main() -> None:
         "-o", "--output", type=Path, default=Path("charts/radar.png"), help="Output file path"
     )
     parser.add_argument("--title", default="Deep Agents Eval Results", help="Chart title")
+    parser.add_argument(
+        "--individual-dir",
+        type=Path,
+        default=None,
+        help="Directory for per-model radar charts (one PNG each)",
+    )
 
     args = parser.parse_args()
 
@@ -94,7 +102,13 @@ def main() -> None:
         sys.exit(1)
 
     if not results:
-        print("error: no results to plot", file=sys.stderr)
+        source = args.summary or args.results or "toy"
+        msg = (
+            f"error: no results to plot from {source}\n"
+            "hint: the summary file may be an empty JSON array (all evals "
+            "cancelled or failed). Check the eval runner logs for details."
+        )
+        print(msg, file=sys.stderr)
         sys.exit(1)
 
     # Detect categories from results (use all categories present across models).
@@ -110,8 +124,11 @@ def main() -> None:
         sys.exit(0)
 
     # Preserve EVAL_CATEGORIES ordering for known categories, append unknown ones.
+    # Categories in ALL_CATEGORIES but not EVAL_CATEGORIES (e.g. unit_test)
+    # are intentionally excluded from radar charts.
     ordered = [c for c in EVAL_CATEGORIES if c in all_cats]
-    ordered.extend(sorted(all_cats - set(ordered)))
+    excluded = set(ALL_CATEGORIES) - set(EVAL_CATEGORIES)
+    ordered.extend(sorted(all_cats - set(ordered) - excluded))
 
     try:
         generate_radar(
@@ -127,6 +144,23 @@ def main() -> None:
         print(f"error: chart generation failed: {exc}", file=sys.stderr)
         sys.exit(1)
     print(f"saved: {args.output}")
+
+    if args.individual_dir and len(results) > 1:
+        try:
+            paths = generate_individual_radars(
+                results,
+                categories=ordered,
+                output_dir=args.individual_dir,
+                title_prefix=args.title,
+            )
+        except OSError as exc:
+            print(f"error: could not save individual charts: {exc}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as exc:
+            print(f"error: individual chart generation failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        for p in paths:
+            print(f"saved: {p}")
 
 
 if __name__ == "__main__":

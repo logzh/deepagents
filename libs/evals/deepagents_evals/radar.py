@@ -1,7 +1,7 @@
 """Radar chart generation for eval results.
 
 Produces per-model radar (spider) charts where each axis represents an
-eval category (e.g. file_operations, memory, hitl) and the radial position
+eval category (e.g. file_operations, memory, tool_use) and the radial position
 encodes the score (0-1 correctness).
 """
 
@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from matplotlib.figure import Figure  # ty: ignore[unresolved-import]
-    from matplotlib.projections.polar import PolarAxes  # ty: ignore[unresolved-import]
+    from matplotlib.figure import Figure
+    from matplotlib.projections.polar import PolarAxes
 
 _CATEGORIES_JSON = Path(__file__).parent / "categories.json"
 try:
@@ -31,10 +31,15 @@ except (json.JSONDecodeError, KeyError) as exc:
     msg = f"Failed to parse {_CATEGORIES_JSON}: {exc}"
     raise ValueError(msg) from exc
 
-EVAL_CATEGORIES: list[str] = _categories_raw["categories"]
-"""Canonical eval category names.
+ALL_CATEGORIES: list[str] = _categories_raw["categories"]
+"""All eval category names, including unit tests that don't appear on radar charts."""
+
+EVAL_CATEGORIES: list[str] = _categories_raw.get("radar_categories", _categories_raw["categories"])
+"""Radar-eligible eval category names.
 
 Order determines axis placement on the radar chart (clockwise from top).
+Categories like ``unit_test`` that verify SDK plumbing rather than model
+capability are excluded from this list.
 """
 
 CATEGORY_LABELS: dict[str, str] = _categories_raw["labels"]
@@ -75,6 +80,7 @@ def generate_radar(
     title: str = "Eval Results",
     output: str | Path | None = None,
     figsize: tuple[float, float] = (10, 10),
+    _color_offset: int = 0,
 ) -> Figure:
     """Generate a radar chart comparing models across eval categories.
 
@@ -88,7 +94,7 @@ def generate_radar(
     Returns:
         The matplotlib `Figure` object.
     """
-    import matplotlib.pyplot as plt  # ty: ignore[unresolved-import]
+    import matplotlib.pyplot as plt
 
     cats = categories or EVAL_CATEGORIES
     n = len(cats)
@@ -116,7 +122,7 @@ def generate_radar(
 
     # Plot each model as a filled polygon.
     for idx, result in enumerate(results):
-        color = _COLORS[idx % len(_COLORS)]
+        color = _COLORS[(idx + _color_offset) % len(_COLORS)]
         values = [result.scores.get(c, 0.0) for c in cats]
         values.append(values[0])  # close polygon
 
@@ -154,6 +160,64 @@ def generate_radar(
         plt.close(fig)
 
     return fig
+
+
+def generate_individual_radars(
+    results: list[ModelResult],
+    *,
+    categories: list[str] | None = None,
+    output_dir: str | Path = "charts/individual",
+    title_prefix: str = "Eval Results",
+    figsize: tuple[float, float] = (10, 10),
+) -> list[Path]:
+    """Generate one radar chart per model.
+
+    Each chart is saved as `<sanitized_model_name>.png` inside `output_dir`.
+
+    Args:
+        results: One `ModelResult` per model.
+        categories: Category axes to include. Defaults to `EVAL_CATEGORIES`.
+        output_dir: Directory to write per-model PNGs.
+        title_prefix: Prefix for each chart title (model name is appended).
+        figsize: Figure size in inches.
+
+    Returns:
+        List of paths to the saved PNG files.
+    """
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    paths: list[Path] = []
+    for idx, result in enumerate(results):
+        name = _short_model_name(result.model)
+        safe = _safe_filename(result.model)
+        dest = out / f"{safe}.png"
+        generate_radar(
+            [result],
+            categories=categories,
+            title=f"{title_prefix} — {name}",
+            output=dest,
+            figsize=figsize,
+            _color_offset=idx,
+        )
+        paths.append(dest)
+    return paths
+
+
+def _safe_filename(model: str) -> str:
+    """Convert a model identifier into a filesystem-safe filename stem.
+
+    Replaces colons, slashes, and spaces with hyphens, then strips leading/
+    trailing hyphens.
+
+    Args:
+        model: Full model identifier.
+
+    Returns:
+        Sanitized string safe for use as a filename (without extension).
+    """
+    safe = model.replace(":", "-").replace("/", "-").replace(" ", "-")
+    return safe.strip("-") or "unknown"
 
 
 def _short_model_name(model: str) -> str:
@@ -218,68 +282,44 @@ def toy_data() -> list[ModelResult]:
             model="anthropic:claude-sonnet-4-6",
             scores={
                 "file_operations": 0.92,
-                "skills": 0.88,
-                "hitl": 0.95,
+                "retrieval": 0.76,
+                "tool_use": 0.85,
                 "memory": 0.83,
+                "conversation": 0.80,
                 "summarization": 0.90,
-                "subagents": 0.78,
-                "system_prompt": 0.97,
-                "tool_usage": 0.85,
-                "followup_quality": 0.91,
-                "external_benchmarks": 0.76,
-                "tau2_airline": 0.70,
-                "memory_agent_bench": 0.82,
             },
         ),
         ModelResult(
             model="openai:gpt-4.1",
             scores={
                 "file_operations": 0.88,
-                "skills": 0.82,
-                "hitl": 0.80,
+                "retrieval": 0.72,
+                "tool_use": 0.86,
                 "memory": 0.79,
+                "conversation": 0.75,
                 "summarization": 0.85,
-                "subagents": 0.75,
-                "system_prompt": 0.90,
-                "tool_usage": 0.88,
-                "followup_quality": 0.85,
-                "external_benchmarks": 0.72,
-                "tau2_airline": 0.65,
-                "memory_agent_bench": 0.78,
             },
         ),
         ModelResult(
             model="google_genai:gemini-2.5-pro",
             scores={
                 "file_operations": 0.85,
-                "skills": 0.78,
-                "hitl": 0.72,
+                "retrieval": 0.68,
+                "tool_use": 0.80,
                 "memory": 0.80,
+                "conversation": 0.70,
                 "summarization": 0.88,
-                "subagents": 0.70,
-                "system_prompt": 0.85,
-                "tool_usage": 0.82,
-                "followup_quality": 0.80,
-                "external_benchmarks": 0.68,
-                "tau2_airline": 0.60,
-                "memory_agent_bench": 0.75,
             },
         ),
         ModelResult(
             model="anthropic:claude-opus-4-6",
             scores={
                 "file_operations": 0.95,
-                "skills": 0.92,
-                "hitl": 0.93,
+                "retrieval": 0.81,
+                "tool_use": 0.90,
                 "memory": 0.90,
+                "conversation": 0.85,
                 "summarization": 0.94,
-                "subagents": 0.85,
-                "system_prompt": 0.98,
-                "tool_usage": 0.91,
-                "followup_quality": 0.94,
-                "external_benchmarks": 0.81,
-                "tau2_airline": 0.75,
-                "memory_agent_bench": 0.88,
             },
         ),
     ]

@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from langchain.chat_models import init_chat_model
-from langchain_baseten import ChatBaseten
-from langchain_openai import ChatOpenAI
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -61,7 +59,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--eval-category",
         action="append",
         default=[],
-        help="Run only evals tagged with this category (repeatable). E.g. --eval-category memory --eval-category hitl",
+        help="Run only evals tagged with this category (repeatable). E.g. --eval-category memory --eval-category tool_use",
+    )
+    parser.addoption(
+        "--openrouter-provider",
+        action="store",
+        default=None,
+        help="Pin OpenRouter to a specific provider. E.g. --openrouter-provider MiniMax",
     )
 
 
@@ -122,15 +126,20 @@ def langsmith_experiment_metadata(request: pytest.FixtureRequest) -> dict[str, A
 
 
 @pytest.fixture
-def model(model_name: str) -> BaseChatModel:
-    if model_name == "nvidia/nemotron-3-super-120b-a12b":
-        return ChatOpenAI(
-            model="private/nvidia/nemotron-3-super-120b-a12b",
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=os.environ["NVIDIA_API_KEY"],
-        )
-    if model_name.startswith("baseten:"):
-        return ChatBaseten(
-            model=model_name.removeprefix("baseten:"),
-        )
-    return init_chat_model(model_name)
+def model(model_name: str, request: pytest.FixtureRequest) -> BaseChatModel:
+    kwargs: dict[str, Any] = {}
+    provider = request.config.getoption("--openrouter-provider")
+    if provider:
+        if not model_name.startswith("openrouter:"):
+            msg = "--openrouter-provider requires an openrouter: model prefix"
+            raise ValueError(msg)
+        kwargs["openrouter_provider"] = {
+            "only": [provider],
+            "allow_fallbacks": False,
+        }
+    if model_name.startswith("openrouter:"):
+        # OpenRouter SDK passes timeout=None to httpx, disabling its default
+        # 5s read timeout. This causes indefinite hangs on TCP stalls.
+        # See: https://github.com/OpenRouterTeam/python-sdk/issues/72
+        kwargs["timeout"] = 120_000  # ms
+    return init_chat_model(model_name, **kwargs)

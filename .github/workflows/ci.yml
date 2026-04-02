@@ -48,7 +48,7 @@ jobs:
           fetch-depth: 0
 
       - name: "🔍 Check for changes"
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
           # Each package filter includes workflow/action paths so that CI
@@ -73,6 +73,7 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/workflows/_lint.yml'
               - '.github/workflows/_test.yml'
+              - '.github/workflows/_benchmark.yml'
               - '.github/actions/**'
             evals:
               - 'libs/evals/**'
@@ -258,12 +259,20 @@ jobs:
   benchmark-deepagents:
     name: "⏱️ Benchmark deepagents"
     needs: changes
-    # TODO: re-enable once CodSpeed integration is ready
-    #if: needs.changes.outputs.deepagents == 'true' || github.event_name == 'push'
-    if: false
+    if: needs.changes.outputs.deepagents == 'true' || github.event_name == 'push'
     uses: ./.github/workflows/_benchmark.yml
     with:
       working-directory: "libs/deepagents"
+    secrets: inherit
+
+  # Run CodSpeed benchmarks on CLI changes
+  benchmark-cli:
+    name: "⏱️ Benchmark cli"
+    needs: changes
+    if: needs.changes.outputs.cli == 'true' || github.event_name == 'push'
+    uses: ./.github/workflows/_benchmark.yml
+    with:
+      working-directory: "libs/cli"
     secrets: inherit
 
   # Final status check - ensures all jobs passed
@@ -285,6 +294,7 @@ jobs:
       - test-modal
       - test-runloop
       - benchmark-deepagents
+      - benchmark-cli
     if: always()
     runs-on: ubuntu-latest
     steps:
